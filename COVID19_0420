@@ -1,0 +1,48 @@
+clear all
+
+cd "/Users/marcelonatale/Desktop/BRAZIL"
+import excel "/Users/marcelonatale/Desktop/BRAZIL/comparison.xlsx", sheet("Sheet1") firstrow clear
+
+
+tsset trend
+twoway line cases_brazil cases_italy cases_spain trend, xline(70, lcolor(green)) xli(76, lcolor(red) lpattern(dash))
+
+twoway line new_brazil new_italy new_spain trend, xline(70, lcolor(green)) xli(76, lcolor(red) lpattern(dash)) yline(1700, lcolor(yellow))
+graph export GRAPH.pdf, replace
+
+
+gen log_cbrazil=log(cases_brazil)
+gen log_cspain=log(cases_spain)
+gen log_citaly=log(cases_italy)
+
+tsline log_cbrazil log_cspain log_citaly
+
+
+reg log_cbrazil trend
+predict log_brhat
+gen brhat = exp(log_brhat)
+tsline log_cbrazil log_brhat
+reg log_cbrazil trend if trend>57
+
+nl (cases_brazil={a0}*exp({delta}*trend)) if trend >=57
+predict brhat3
+
+set obs 120
+gen trend1 = _n
+gen brhat4 = .0243633*exp(.1341388*trend1)
+tsset trend1
+
+gen return = l.cases_brazil/d.cases_brazil
+gen growth = d.cases_brazil/l.cases_brazil
+
+
+gen predictgrowth = return * cases_brazil
+
+twoway line new_brazil new_italy new_spain date, xline(, lcolor(green)) xli(76, lcolor(red) lpattern(dash)) yline(1700)
+
+gen Novos_Casos_Espanha = new_spain
+gen Novos_Casos_Italia = new_italy
+gen Novos_Casos_Brasil = new_brazil
+
+
+twoway line Novos_Casos_Brasil Novos_Casos_Italia Novos_Casos_Espanha trend, xline(70, lcolor(green)) xli(76, lcolor(red) lpattern(dash)) yline(1700, lcolor(yellow))
