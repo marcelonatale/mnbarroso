@@ -1,0 +1,387 @@
+clear all
+cd "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/"
+import delimited "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/price1.csv"
+drop symbol terminated decimals status
+gen date = ïref_date
+encode geo, gen(n_geo)
+drop if uom_id == 383
+drop if cannabisprice == "Producer price"
+drop if date <= 1981
+tsset n_geo date 
+preserve
+gen c = 0
+replace c = 1 if geo == "Canada"
+drop if c == 0
+/// CLEANING DATASET
+collapse value, by(date)
+rename value valueC
+save "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/canadaavg.dta", replace
+restore 
+/// CREATE AN AVERAGE FOR CANADA
+gen bc = 0
+replace bc = 1 if geo == "British Columbia"
+drop if bc == 0
+
+merge 1:1 date using "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/canadaavg.dta" 
+/// MERGING DATASETS
+
+save "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/CBCavg.csv", replace
+tsset n_geo date
+gen valueBC = value
+gen log_BC = log(valueBC)
+gen log_C = log(valueC) 
+/// GENERATING RETURNS
+
+gen r_valueBC1 = (log(valueBC[_n])-(log(valueBC[_n-1])))
+gen r_valueC1 = (log(valueC[_n])-(log(valueC[_n-1])))
+
+
+
+
+
+
+
+
+*MODEL WITHOUT ESTIMATION PERIOD*
+reg r_valueBC1 r_valueC1
+gen AR= r_valueBC1-(-.0576183+.9597885 *r_valueC1) 
+// AR WITHOUT ESTIMATION WINDOW
+egen mean_abnormal_ri1 = mean(AR /(date>=2010 & date<=2016))
+egen sd_abnormal_ri1=sd(AR/ (date>1982 & date<=2010))
+gen test_stat1 = mean_abnormal_ri1 / sd_abnormal_ri1 
+
+
+
+
+
+
+
+
+
+
+
+
+*ESTIMATION PERIOD 1982 - 2010 / EVENT WINDOW 2010 - 2018
+gen t1 = 1 if date <=2010
+replace t1 = 2 if date > 2010
+reg r_valueBC1 r_valueC1 if t1 == 1
+local se_reg = _se[r_valueC1]
+gen AR2 = r_valueBC1-(.0005336  +.993765 *r_valueC1)
+/// ABNORMAL RETURN WITH ESTIMATION WINDOW FROM REGRESSION
+tsline AR2
+gen abnormal_ri = AR2 if (date>=2010)
+egen sd_abnormal_ri=sd(AR2/ (date>1982 & date<=2010))
+gen test_stat = abnormal_ri / sd_abnormal_ri
+
+rename abnormal_ri AR
+rename sd_abnormal_ri SDAR
+rename test_stat Tstat
+outsheet Year AR SDAR Tstat using ARTest.xls if Year>=2010, replace
+/// TEST-STAT TO SEE IF THERE'S AN EVENT THAT AFFECTED THE PRICE BESIDES OF AVERAGE MARKET FLUCTUATION
+
+*IT DOES GO TO THE 1% CONFIDENCE LEVEL, the abnormal return occured by random chances, we reject the null hypothesis of the price being driven only by market fluctuation.
+
+*H0 - Null - Prices are driven by market fluctuation*
+*H1 - Prices have external influences*
+
+
+/// ^^^^^ ABNORMAL RETURN PART ^^^^^^ ///
+
+
+/// READY !!!!!!! ///////
+
+
+
+
+
+
+
+
+
+
+
+/// VVV HOW MUCH AFFECTED PART VVVVVV ///
+/// CHECKING FOR TRENDS ///
+
+clear all
+cd "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/"
+import delimited "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/price1.csv"
+drop symbol terminated decimals status
+gen date = ïref_date
+encode geo, gen(n_geo)
+drop if uom_id == 383
+drop if cannabisprice == "Producer price"
+drop if date <= 1981
+tsset n_geo date 
+gen bc = 0
+replace bc = 1 if geo == "British Columbia"
+drop if bc == 0
+
+
+gen s1 = 1 if date < 2015
+gen s2 = 1 if date >= 2015
+tsset n_geo date
+gen log_BC = log(value) if geo == "British Columbia"
+gen log_C = log(value) if geo == "Canada"
+gen dvalue = d.value
+gen d2value = d2.value
+twoway (tsline log_BC) (qfit log_BC date)
+
+
+gen date2 = date^2
+reg value date date2
+predict rhat 
+/// rhat is the quadratic trend fit values
+reg log_BC date date2
+predict rhatlog
+tw tsline value rhat
+tsline log_BC rhatlog
+twoway (tsline value rhat) (lfit value date if date >=2000) 
+/// linear trend after 2000
+
+reg value date if date >= 2000
+predict rhat_linear 
+/// CREATING LINEAR TREND after 2000
+reg log_BC date if date >= 2000
+predict rhatlog_linear 
+
+reg value l.value
+predict rhat_cycle
+/// CREATING A CYCLICAL TREND
+twoway tsline value rhat_cycle
+reg log_BC l.log_BC
+predict rhatlog_cycle
+tsline log_BC rhatlog_cycle
+
+
+reg value date date2 l.value
+predict what
+tsline what value
+reg log_BC date date2 l.log_BC
+predict what1
+tsline what1 log_BC
+/// created a cyclical trend with quadratic and linear, comparing trends
+
+
+/// CONSTRUCTING A MODEL ///
+
+forvalues i=1(1)10 {
+	reg value L(0/`i').log_BC
+	estat ic
+	}
+/// 2 lags reaches best R2 and AIC ///
+
+
+gen r_value = (log(value[_n])-(log(value[_n-1])))
+tsline r_value, yline(0)
+graph export "Return prices.pdf", replace
+reg r_value date
+ac r_value
+pac r_value
+
+corrgram r_value
+wntestq r_value
+wntestq r_value, lags(2)
+
+dfuller d.r_value
+/// The ADF test for unit root tell us that THE asset return variableS is non-stationary according to the paremeters included in the test. It meets the assumption of test statistic being even more negative than its critical values, showing a stationary pattern in the variable in an order I(1) *
+
+
+
+
+/// TESTS DONE FOR AUTOCORRELATION IN 2 LAGS ^^^^^^^ ///
+
+
+
+
+
+
+
+
+
+/// INTERVENTION MODEL BELOW VVVV ////
+
+clear all
+cd "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/"
+import delimited "/Users/marcelonatale/Desktop/IDEC/A FINAL PROJECT CANNABIS/price1.csv"
+drop symbol terminated decimals status
+gen date = ïref_date
+encode geo, gen(n_geo)
+drop if uom_id == 383
+drop if cannabisprice == "Producer price"
+drop if date <= 1981
+tsset n_geo date 
+gen bc = 0
+replace bc = 1 if geo == "British Columbia"
+replace bc = 1 if geo == "Canada"
+drop if bc == 0
+gen log_value = log(value)
+tsset n_geo date 
+
+
+
+itsa value, treat(3) trperiod(2003 2013) lag(12) posttrend figure(xsize(15)) replace
+
+/// That show that the Canadian market post medical legalization has their cannabis price per gram reducing by .01 cents/gram more than the average in British Columbia till the legalization in Washington state. 
+
+/// Once legalized in Washington state, the price in British Columbia has a bigger decrease by .01 cents/gram in comparison with the country of CANADA which means a differente of .02 cents/gram from pre and post intervention.
+
+
+
+
+
+ac value if geo == "British Columbia", title("British Columbia")
+graph export "AC British Columbia.pdf", replace
+ac value if geo == "Canada", title("Canada")
+graph export "AC Canada.pdf", replace
+itsa log_value, single treat(3) trperiod(2003 2013) lag(2) posttrend replace
+outreg2 using TABLES1.xls, ctitle("British Columbia") title("Log(Price)") word replace
+
+itsa log_value, single treat(4) trperiod(2003 2013) lag(2) posttrend replace
+outreg2 using TABLES1.xls, ctitle("Canada") word append
+
+itsa log_value, single treat(3) trperiod(2003 2013) lag(2) posttrend replace
+margins, expression(_b[_t]+_b[_x_t2003]) post
+outreg2 using TABLES1.xls, ctitle("British Columbia") word append
+
+itsa log_value, single treat(4) trperiod(2003 2013) lag(2) posttrend replace
+margins, expression(_b[_t]+_b[_x_t2003]) post
+outreg2 using TABLES1.xls, ctitle("Canada") word append
+
+itsa log_value, treat(3) trperiod(2003 2013) lag(12) posttrend replace
+margins, expression(_b[_z_t] +  _b[_z_x_t2003]) post
+outreg2 using TABLES1.xls, ctitle("Difference-in-Difference") word append
+
+itsa log_value, single treat(3) trperiod(2003 2013) lag(2) posttrend replace
+margins, expression(_b[_t]+_b[_x_t2003]+_b[_x_t2013]) post
+outreg2 using TABLES1.xls, ctitle("British Columbia") word append
+
+itsa log_value, single treat(4) trperiod(2003 2013) lag(2) posttrend replace
+margins, expression(_b[_t]+_b[_x_t2003]+_b[_x_t2013]) post
+outreg2 using TABLES1.xls, ctitle("Canada") word append
+
+
+
+itsa log_value, treat(3) trperiod(2003 2013) lag(12) posttrend figure(xsize(7) ytitle("ln(Price)") xtitle("Time in years")) replace
+actest, lags(10)
+graph export "Change in price AVG.pdf", replace
+margins, expression(_b[_z_t] +  _b[_z_x_t2003] +  _b[_z_x_t2013]) post
+outreg2 using TABLES1.xls, ctitle("Difference-in-Difference") word append
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gen treated = 0
+replace treated = 1 if geo == "British Columbia"
+gen time = 0
+replace time = 1 if date >= 2014
+diff value, t(treated) p(time)
+
+
+
+
+
+
+
+
+
+/// That show that the Canadian market post medical legalization has their cannabis price per gram reducing by 0.09% more than the average in British Columbia till the legalization in Washington state. 
+
+/// Once legalized in Washington state, the price in British Columbia has a bigger decrease by 0.2% in comparison with the country of CANADA which means a differente of approximately 0.3%(Not Significant) from pre and post intervention.
+
+
+itsa value, single treat(3) trperiod(2001 2014) lag(2) posttrend figure(xsize(15)) replace
+
+/// Price went down by .25$/year in average in BC in the period post Canada legalized cannabis for medical purposes. 
+
+/// The legalization in Washington State came up in 2013/2014, making the prices drastically go down by .40$/year in average after intervention.
+
+
+itsa log_value, single treat(3) trperiod(2001 2014) lag(2) posttrend figure(xsize(15)) replace
+outreg2 using TABLES.xls, replace
+
+/// Price went down by 2.5%/year in average in BC in the period post Canada legalized cannabis for medical purposes. 
+
+/// The legalization in Washington State came up in 2013/2014, making the prices drastically go down by 5.3%/year in average after intervention.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+itsa value, single treat(3) trperiod(2003 2010 2014) lag(2) posttrend figure(xsize(15)) replace 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gen c = 0
+replace c = 1 if geo == ("Ontario")
+replace c = 1 if geo == ( "Alberta")
+replace c = 1 if geo == ("Saskatchewan")
+replace c = 1 if geo == ("Manitoba")
+replace c = 1 if geo == ("British Columbia")
+drop if c == 0
+replace c = 1 if geo == ("British Columbia")
+
+
+
+
+itsa value, treat(3) trperiod(2003 2014) lag(2) posttrend figure(xsize(15)) replace
+/// ADD THAT AS A ROBUSTNESS TEST, SHOW THE AGGREGATE AMOUNT TO SUSTAIN YOUR ASSUMPTION.
+
+
+
+
+
+
+
+https://journals.sagepub.com/doi/pdf/10.1177/1536867X1501500208
